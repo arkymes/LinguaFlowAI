@@ -9,10 +9,11 @@ import AudioVisualizer from './AudioVisualizer';
 interface LiveSessionProps {
   scenario: Scenario;
   mode: TeachingMode;
+  apiKey: string; // Recieving API Key from parent
   onExit: () => void;
 }
 
-const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, onExit }) => {
+const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExit }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isMicOn, setIsMicOn] = useState(true);
   const [transcripts, setTranscripts] = useState<ChatMessage[]>([]);
@@ -35,8 +36,10 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, onExit }) => 
 
     const startSession = async () => {
       try {
-        const apiKey = process.env.API_KEY;
-        if (!apiKey) return;
+        if (!apiKey) {
+            console.error("No API Key provided");
+            return;
+        }
 
         const ai = new GoogleGenAI({ apiKey });
         
@@ -143,7 +146,10 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, onExit }) => 
               }
             },
             onclose: () => setIsConnected(false),
-            onerror: (err) => console.error(err)
+            onerror: (err) => {
+                console.error(err);
+                setIsConnected(false);
+            }
           },
           config: {
             responseModalities: [Modality.AUDIO],
@@ -173,7 +179,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, onExit }) => 
 
     startSession();
     return () => cleanup();
-  }, [scenario, mode]); 
+  }, [scenario, mode, apiKey]); // Added apiKey to dependency array
 
   const [showChat, setShowChat] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import LiveSession from './components/LiveSession';
 import { SCENARIOS } from './constants';
@@ -8,12 +8,41 @@ import { Scenario, TeachingMode } from './types';
 const App: React.FC = () => {
   const [activeScenario, setActiveScenario] = useState<Scenario | null>(null);
   const [teachingMode, setTeachingMode] = useState<TeachingMode>(TeachingMode.TEACHER);
+  
+  // API Key State Management
+  const [apiKey, setApiKey] = useState<string>('');
+  const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
 
-  if (activeScenario) {
+  useEffect(() => {
+    // Load key from storage on boot
+    const storedKey = localStorage.getItem('gemini_api_key');
+    if (storedKey) {
+      setApiKey(storedKey);
+    } else {
+      setShowKeyModal(true);
+    }
+  }, []);
+
+  const handleSaveKey = (key: string) => {
+    localStorage.setItem('gemini_api_key', key);
+    setApiKey(key);
+    setShowKeyModal(false);
+  };
+
+  const handleScenarioSelect = (scenario: Scenario) => {
+    if (!apiKey) {
+      setShowKeyModal(true);
+      return;
+    }
+    setActiveScenario(scenario);
+  };
+
+  if (activeScenario && apiKey) {
     return (
       <LiveSession 
         scenario={activeScenario} 
         mode={teachingMode} 
+        apiKey={apiKey}
         onExit={() => setActiveScenario(null)} 
       />
     );
@@ -37,7 +66,17 @@ const App: React.FC = () => {
              <h2 className="text-slate-400 text-sm font-medium tracking-wide mb-1">Welcome back,</h2>
              <h1 className="text-3xl font-bold text-white tracking-tight">Student</h1>
            </div>
-           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-purple-600 shadow-lg shadow-orange-500/20 border border-white/10"></div>
+           
+           {/* Settings / API Key Button */}
+           <button 
+             onClick={() => setShowKeyModal(true)}
+             className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+           >
+             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+             </svg>
+           </button>
         </header>
 
         {/* Mode Selector (Segmented Control) */}
@@ -89,7 +128,7 @@ const App: React.FC = () => {
              {SCENARIOS.map((scenario) => (
                <button 
                  key={scenario.id}
-                 onClick={() => setActiveScenario(scenario)}
+                 onClick={() => handleScenarioSelect(scenario)}
                  className="w-full text-left p-4 rounded-[28px] glass-button flex items-center gap-5 group hover:bg-white/10"
                >
                   {/* Icon Container */}
@@ -133,6 +172,63 @@ const App: React.FC = () => {
         <div className="absolute bottom-0 left-0 w-full h-20 bg-gradient-to-t from-[#050505] to-transparent pointer-events-none"></div>
 
       </main>
+
+      {/* API Key Modal */}
+      {showKeyModal && (
+        <ApiKeyModal 
+          initialKey={apiKey} 
+          onSave={handleSaveKey} 
+          onClose={() => apiKey ? setShowKeyModal(false) : null} // Can only close if a key exists
+          dismissable={!!apiKey}
+        />
+      )}
+    </div>
+  );
+};
+
+const ApiKeyModal: React.FC<{ initialKey: string, onSave: (k: string) => void, onClose: () => void, dismissable: boolean }> = ({ initialKey, onSave, onClose, dismissable }) => {
+  const [inputVal, setInputVal] = useState(initialKey);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
+       <div className="w-full max-w-sm glass-panel p-8 rounded-[32px] border border-white/10 shadow-2xl relative">
+          {dismissable && (
+            <button onClick={onClose} className="absolute top-4 right-4 text-slate-500 hover:text-white">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          )}
+
+          <div className="w-12 h-12 rounded-full bg-orange-500/20 flex items-center justify-center mb-4 text-orange-400 mx-auto">
+             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+          </div>
+          
+          <h2 className="text-xl font-bold text-white text-center mb-2">Enter API Key</h2>
+          <p className="text-slate-400 text-xs text-center mb-6 leading-relaxed">
+            To use LinguaFlow, you need a Gemini API Key. Your key is stored locally in your browser and never sent to our servers.
+          </p>
+
+          <input 
+            type="password" 
+            value={inputVal}
+            onChange={(e) => setInputVal(e.target.value)}
+            placeholder="AIzaSy..."
+            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500/50 mb-4 transition-colors placeholder:text-slate-600"
+          />
+
+          <button 
+            onClick={() => onSave(inputVal)}
+            disabled={!inputVal}
+            className="w-full py-3 bg-gradient-to-r from-orange-500 to-purple-600 rounded-xl text-white font-semibold text-sm shadow-lg shadow-orange-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Save Key
+          </button>
+          
+          <div className="mt-4 text-center">
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-[10px] text-slate-500 hover:text-white underline underline-offset-2 transition-colors">
+              Get a Gemini API Key here
+            </a>
+          </div>
+       </div>
     </div>
   );
 };
