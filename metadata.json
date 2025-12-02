@@ -1,0 +1,7 @@
+{
+  "name": "LinguaFlow AI - Voice Tutor",
+  "description": "An advanced, real-time voice conversation AI tutor for language learning with roleplay scenarios and instant feedback.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
