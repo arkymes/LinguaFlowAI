@@ -1,9 +1,24 @@
+
 export enum TeachingMode {
   TEACHER = 'TEACHER', // Immediate correction
   FLUENCY = 'FLUENCY', // Post-conversation feedback (or subtle natural flow)
 }
 
 export type DifficultyLevel = 'ROOKIE' | 'ADEPT' | 'ELITE';
+
+export interface User {
+  id: string;
+  username: string;
+  email?: string;
+  photoURL?: string;
+  createdAt: Date;
+  level: number;
+  currentXp: number;
+  nextLevelXp: number;
+  totalConversations: number;
+  streakDays: number;
+  isGuest?: boolean;
+}
 
 export interface Scenario {
   id: string;
