@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '../types';
 import { UserService } from '../services/userService';
@@ -170,3 +171,4 @@ export const useAuth = () => {
     }
     return context;
 };
+    

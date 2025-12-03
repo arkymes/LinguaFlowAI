@@ -59,3 +59,4 @@ export interface SessionEvaluation {
   feedback: string;
   tips: string[];
 }
+    

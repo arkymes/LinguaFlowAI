@@ -111,18 +111,22 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                                             console.log("Mission Completed via Tool Call");
                                             setMissionSuccess(true);
                                             missionSuccessRef.current = true;
-                                            setTimeout(() => handleSessionEnd(), 1000);
+                                            // Send 'ok' response to acknowledge the tool call
+                                            sessionPromise.then(session => session.sendToolResponse({
+                                                functionResponses: [{
+                                                    id: part.functionCall!.id,
+                                                    name: name,
+                                                    response: { result: 'ok' }
+                                                }]
+                                            }));
+                                            setTimeout(() => handleSessionEnd(), 2000); // Delay slightly to let audio finish
                                             return;
                                         }
-                                    }
-                                    // Handle Text Generation (Primary Transcript Source)
-                                    if (part.text) {
-                                        currentOutputTransRef.current += part.text;
-                                        setRealtimeOutput(currentOutputTransRef.current);
                                     }
                                 }
                             }
 
+                            // Handle Audio Output
                             const base64Audio = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                             if (base64Audio) {
                                 const ctx = outputAudioContextRef.current;
@@ -156,11 +160,12 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                                 setIsAiSpeaking(false);
                             }
 
-                            // Fallback to outputTranscription if available
+                            // Handle Transcription
+                            // Note: outputTranscription comes in chunks, we accumulate them.
                             const outTrans = msg.serverContent?.outputTranscription?.text;
                             const inTrans = msg.serverContent?.inputTranscription?.text;
 
-                            if (outTrans && !currentOutputTransRef.current.includes(outTrans)) {
+                            if (outTrans) {
                                 currentOutputTransRef.current += outTrans;
                                 setRealtimeOutput(currentOutputTransRef.current);
                             }
@@ -170,16 +175,17 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                             }
 
                             if (msg.serverContent?.turnComplete) {
-                                if (currentInputTransRef.current) {
-                                    setTranscripts(prev => [...prev, { id: Date.now() + 'u', role: 'user', text: currentInputTransRef.current, timestamp: new Date() }]);
+                                if (currentInputTransRef.current.trim()) {
+                                    setTranscripts(prev => [...prev, { id: Date.now() + 'u', role: 'user', text: currentInputTransRef.current.trim(), timestamp: new Date() }]);
                                     currentInputTransRef.current = '';
                                     setRealtimeInput('');
                                 }
-                                if (currentOutputTransRef.current) {
+                                if (currentOutputTransRef.current.trim()) {
                                     // Clean up any lingering tokens just in case
                                     let text = currentOutputTransRef.current.replace('[MISSION_COMPLETE]', '').trim();
-
-                                    setTranscripts(prev => [...prev, { id: Date.now() + 'a', role: 'model', text, timestamp: new Date() }]);
+                                    if (text) {
+                                        setTranscripts(prev => [...prev, { id: Date.now() + 'a', role: 'model', text, timestamp: new Date() }]);
+                                    }
                                     currentOutputTransRef.current = '';
                                     setRealtimeOutput('');
                                 }
@@ -192,7 +198,12 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                         }
                     },
                     config: {
-                        responseModalities: [Modality.AUDIO, Modality.TEXT], // Enable TEXT to ensure we get transcripts
+                        responseModalities: [Modality.AUDIO], // MUST be AUDIO only for Live API
+                        speechConfig: {
+                            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } }
+                        },
+                        inputAudioTranscription: {}, // Request transcription for user audio
+                        outputAudioTranscription: {}, // Request transcription for model audio
                         tools: [{
                             functionDeclarations: [{
                                 name: "complete_mission",

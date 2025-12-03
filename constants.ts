@@ -79,3 +79,4 @@ export const MODE_INSTRUCTIONS: Record<TeachingMode, string> = {
     - Focus on the flow of ideas rather than perfect grammar.
   `
 };
+    

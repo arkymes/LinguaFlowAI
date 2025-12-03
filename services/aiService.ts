@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from '@google/genai';
 import { ChatMessage, Scenario, SessionEvaluation, DailyMission } from '../types';
 import { GEMINI_MODEL } from '../constants';
@@ -148,3 +149,4 @@ export const AIService = {
         }
     }
 };
+    
