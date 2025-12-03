@@ -6,6 +6,16 @@ export enum TeachingMode {
 
 export type DifficultyLevel = 'ROOKIE' | 'ADEPT' | 'ELITE';
 
+export interface DailyMission {
+  id: string;
+  date: string; // YYYY-MM-DD
+  title: string;
+  description: string;
+  objectives: string[];
+  isCompleted: boolean;
+  score?: number;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -18,6 +28,7 @@ export interface User {
   totalConversations: number;
   streakDays: number;
   isGuest?: boolean;
+  dailyMissions?: DailyMission[];
 }
 
 export interface Scenario {
@@ -41,4 +52,10 @@ export interface AudioState {
   isPlaying: boolean;
   isListening: boolean;
   volumeLevel: number; // 0-100 for visualizer
+}
+
+export interface SessionEvaluation {
+  score: number; // 0-10
+  feedback: string;
+  tips: string[];
 }

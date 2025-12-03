@@ -1,3 +1,6 @@
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore/lite";
 
 // Your web app's Firebase configuration
 export const firebaseConfig = {
@@ -8,3 +11,7 @@ export const firebaseConfig = {
   messagingSenderId: "485853821142",
   appId: "1:485853821142:web:b8c5a28a158ac8e1c53177"
 };
+
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);

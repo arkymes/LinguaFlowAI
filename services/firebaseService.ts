@@ -1,14 +1,7 @@
-
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, User as FirebaseUser } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
-import { firebaseConfig } from '../firebaseConfig';
+import { GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, User as FirebaseUser } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore/lite';
 import { User } from '../types';
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+import { auth, db } from '../firebaseConfig';
 
 export const FirebaseService = {
   auth,
@@ -22,7 +15,7 @@ export const FirebaseService = {
     try {
       const result = await signInWithPopup(auth, provider);
       const fbUser = result.user;
-      
+
       // Sync with Firestore to get XP/Level
       return await this.syncUser(fbUser);
     } catch (error) {
@@ -45,7 +38,7 @@ export const FirebaseService = {
   async syncUser(fbUser: FirebaseUser): Promise<{ user: User, isNew: boolean }> {
     const userRef = doc(db, 'users', fbUser.uid);
     const userSnap = await getDoc(userRef);
-    
+
     if (userSnap.exists()) {
       // Existing User: Return data
       const data = userSnap.data();
@@ -80,7 +73,7 @@ export const FirebaseService = {
         streakDays: 1,
         isGuest: false
       };
-      
+
       // Save to Firestore
       await setDoc(userRef, {
         ...newUser,
@@ -96,7 +89,7 @@ export const FirebaseService = {
    */
   async saveUserProgress(user: User): Promise<void> {
     if (user.isGuest) return; // Don't save guest to cloud
-    
+
     try {
       const userRef = doc(db, 'users', user.id);
       await setDoc(userRef, {
