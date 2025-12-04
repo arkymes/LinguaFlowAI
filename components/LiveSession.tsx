@@ -21,6 +21,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
     const [realtimeInput, setRealtimeInput] = useState('');
     const [realtimeOutput, setRealtimeOutput] = useState('');
     const [missionSuccess, setMissionSuccess] = useState(false);
+    const [missionCompleting, setMissionCompleting] = useState(false); // New state for immediate feedback
 
     // Visualizer State
     const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
@@ -109,8 +110,10 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                                         const { name } = part.functionCall;
                                         if (name === 'complete_mission') {
                                             console.log("Mission Completed via Tool Call");
+                                            setMissionCompleting(true); // IMMEDIATE UI FEEDBACK
                                             setMissionSuccess(true);
                                             missionSuccessRef.current = true;
+                                            
                                             // Send 'ok' response to acknowledge the tool call
                                             sessionPromise.then(session => session.sendToolResponse({
                                                 functionResponses: [{
@@ -262,6 +265,8 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
     const handleSessionEnd = async () => {
         if (isEvaluating) return; // Prevent double triggers
         setIsEvaluating(true);
+        // Force clear missionCompleting to avoid overlay conflict
+        setMissionCompleting(false); 
 
         // IMMEDIATELY disconnect to stop AI from listening/speaking
         try {
@@ -311,12 +316,19 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                 ];
             }
 
-            // 3. Evaluate
+            // 3. Evaluate with Timeout Race
+            const evaluatePromise = AIService.evaluateSession(apiKey, finalTranscripts, scenario);
+            
+            // 8 second timeout safety
+            const timeoutPromise = new Promise<SessionEvaluation>((_, reject) => 
+                setTimeout(() => reject(new Error("Evaluation Timed Out")), 8000)
+            );
+
             let result: SessionEvaluation;
             try {
-                result = await AIService.evaluateSession(apiKey, finalTranscripts, scenario);
+                result = await Promise.race([evaluatePromise, timeoutPromise]);
             } catch (evalError) {
-                console.error("AI Evaluation failed, using local fallback", evalError);
+                console.error("AI Evaluation failed or timed out", evalError);
                 // Smart Fallback based on Mission Success
                 if (missionSuccessRef.current) {
                     result = {
@@ -327,7 +339,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                 } else {
                     result = {
                         score: 5,
-                        feedback: "Good effort, but the session ended early.",
+                        feedback: "Good effort, but the session ended early or evaluation failed.",
                         tips: ["Try to speak more.", "Complete the objective next time.", "Practice daily."]
                     };
                 }
@@ -467,6 +479,19 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                         <div ref={chatEndRef}></div>
                     </div>
                 </div>
+
+                {/* Mission Completing Immediate Feedback Overlay */}
+                {missionCompleting && !isEvaluating && (
+                    <div className="absolute inset-0 z-40 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300">
+                        <div className="flex flex-col items-center animate-in zoom-in duration-500">
+                             <div className="w-24 h-24 bg-emerald-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_50px_rgba(16,185,129,0.5)] animate-bounce">
+                                    <svg className="w-12 h-12 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                            </div>
+                            <h3 className="text-emerald-400 font-bold text-2xl tracking-wide uppercase">Mission Complete!</h3>
+                             <p className="text-slate-400 text-sm mt-2">Ending session...</p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Evaluating Overlay */}
                 {isEvaluating && (

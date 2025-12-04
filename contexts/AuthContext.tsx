@@ -107,6 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (error: any) {
             console.error("Login failed", error);
             setError(`Login Failed: ${error.message || 'Unknown error'}`);
+            throw error; // RETHROW so UI can catch specific codes like authorized-domain
         }
     };
 
@@ -171,4 +172,3 @@ export const useAuth = () => {
     }
     return context;
 };
-    

@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import LiveSession from './components/LiveSession';
 import { SCENARIOS } from './constants';
@@ -30,10 +29,11 @@ const MainContent: React.FC = () => {
       setAuthErrorDomain(null);
       await signInWithGoogle();
     } catch (e: any) {
-      console.error("Login Error:", e);
-      // Basic error handling, could be improved
-      if (e.message?.includes('unauthorized-domain')) {
-        const currentDomain = window.location.hostname || "Current Domain";
+      console.error("Login Error Caught in UI:", e);
+      // Robust check for unauthorized domain
+      if (e.code === 'auth/unauthorized-domain' || e.message?.includes('unauthorized-domain')) {
+        // Fallback to href if hostname is empty (common in some previews)
+        const currentDomain = window.location.hostname || window.location.host || window.location.href || "Current URL";
         setAuthErrorDomain(currentDomain);
       }
     }
@@ -138,7 +138,7 @@ const MainContent: React.FC = () => {
 
   // --- VIEW: DASHBOARD ---
   return (
-    <div className="flex flex-col h-full w-full max-w-md mx-auto md:max-w-full md:flex-row md:items-center md:justify-center relative">
+    <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto md:max-w-full md:flex-row md:items-center md:justify-center relative">
 
       {/* Mobile Ambient Background */}
       <div className="ambient-glow"></div>
@@ -218,7 +218,7 @@ const MainContent: React.FC = () => {
         {activeTab === 'dashboard' ? (
           <>
             {/* Scenarios List */}
-            <div className="flex-1 overflow-y-auto no-scrollbar pb-24">
+            <div className="flex-1 overflow-y-auto no-scrollbar pb-40">
               <div className="flex justify-between items-end mb-4 px-1">
                 <h3 className="text-xl font-semibold text-white">Select Scenario</h3>
               </div>
@@ -262,10 +262,15 @@ const MainContent: React.FC = () => {
           </>
         ) : (
           /* Missions Tab */
-          <div className="flex-1 overflow-y-auto no-scrollbar pb-24">
+          <div className="flex-1 overflow-y-auto no-scrollbar pb-40">
             <div className="flex justify-between items-end mb-4 px-1">
               <h3 className="text-xl font-semibold text-white">Daily Operations</h3>
-              <span className="text-xs text-slate-400">{new Date().toLocaleDateString()}</span>
+               <div className="flex items-center gap-2">
+                   <button onClick={user?.dailyMissions ? () => {/* Regenerate logic handled by effect on empty/date mismatch, manual refresh could be added here */ } : undefined} className="text-slate-500 hover:text-white">
+                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                   </button>
+                  <span className="text-xs text-slate-400">{new Date().toLocaleDateString()}</span>
+               </div>
             </div>
 
             <div className="space-y-4">
@@ -320,7 +325,7 @@ const MainContent: React.FC = () => {
             className={`flex flex-col items-center justify-center w-16 h-full transition-all ${activeTab === 'dashboard' ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
           >
             <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" />
             </svg>
             <span className="text-[9px] font-bold uppercase tracking-wider">Home</span>
           </button>
@@ -475,6 +480,26 @@ const OnboardingView: React.FC<{ onCreateGuest: (name: string) => void, onGoogle
 // --- SUB-COMPONENT: API KEY MODAL ---
 const ApiKeyModal: React.FC<{ initialKey: string, onSave: (k: string) => void, onClose: () => void, dismissable: boolean }> = ({ initialKey, onSave, onClose, dismissable }) => {
   const [inputVal, setInputVal] = useState(initialKey);
+  const [pasteError, setPasteError] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handlePaste = async () => {
+    try {
+      setPasteError(false);
+      // Check if clipboard API is available
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+          throw new Error("Clipboard API not supported or blocked");
+      }
+      const text = await navigator.clipboard.readText();
+      if (text) setInputVal(text);
+    } catch (err) {
+      // Log as warn to avoid scary error in console for expected permission blocks
+      console.warn('Clipboard access failed (likely blocked by browser policy):', err);
+      setPasteError(true);
+      // Automatically focus the input to allow manual paste (Ctrl+V / Long Press)
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
@@ -494,13 +519,34 @@ const ApiKeyModal: React.FC<{ initialKey: string, onSave: (k: string) => void, o
           Enter your Gemini API Key. It's stored securely on your device.
         </p>
 
-        <input
-          type="password"
-          value={inputVal}
-          onChange={(e) => setInputVal(e.target.value)}
-          placeholder="Paste API Key here..."
-          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500/50 mb-4 transition-colors placeholder:text-slate-600 text-center"
-        />
+        <div className="relative w-full mb-4">
+          <input
+            ref={inputRef}
+            type="password"
+            value={inputVal}
+            onChange={(e) => {
+              setInputVal(e.target.value);
+              if (pasteError) setPasteError(false);
+            }}
+            placeholder="Paste API Key here..."
+            className={`w-full bg-black/40 border ${pasteError ? 'border-red-500/50' : 'border-white/10'} rounded-xl pl-4 pr-12 py-3 text-white text-sm focus:outline-none focus:border-orange-500/50 transition-colors placeholder:text-slate-600 text-center`}
+          />
+          <button 
+            onClick={handlePaste}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+            title="Paste from Clipboard"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+          </button>
+        </div>
+        
+        {pasteError && (
+            <div className="text-[10px] text-red-400 text-center mb-4 -mt-2 animate-pulse">
+                Clipboard access blocked. Please paste manually.
+            </div>
+        )}
 
         <button
           onClick={() => onSave(inputVal)}
@@ -522,4 +568,3 @@ const ApiKeyModal: React.FC<{ initialKey: string, onSave: (k: string) => void, o
 
 const root = createRoot(document.getElementById('root')!);
 root.render(<App />);
-    

@@ -2,6 +2,8 @@
 import { Scenario, TeachingMode } from './types';
 
 export const GEMINI_MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
+export const TEXT_MODEL = 'gemini-1.5-flash'; // More reliable for JSON tasks
+export const TEXT_MODEL_FALLBACK = 'gemini-2.5-flash'; 
 
 export const SCENARIOS: Scenario[] = [
   {
@@ -79,4 +81,3 @@ export const MODE_INSTRUCTIONS: Record<TeachingMode, string> = {
     - Focus on the flow of ideas rather than perfect grammar.
   `
 };
-    
