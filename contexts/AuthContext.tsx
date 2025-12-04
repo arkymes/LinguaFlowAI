@@ -43,19 +43,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check Daily Mission
     useEffect(() => {
         const checkMission = async () => {
-            if (user && apiKey && !user.isGuest) {
+            // Allowing guests to have missions too
+            if (user && apiKey) {
                 const today = new Date().toISOString().split('T')[0];
                 // Check if missions exist and are from today
                 if (!user.dailyMissions || user.dailyMissions.length === 0 || user.dailyMissions[0].date !== today) {
                     try {
                         console.log("Generating Daily Missions...");
+                        // This service method has a fallback built-in, so it should always return something
                         const missions = await AIService.generateDailyMissions(apiKey, user.level);
+                        
                         const updatedUser = { ...user, dailyMissions: missions };
                         setUser(updatedUser);
-                        // Save to DB (optional, but good for persistence)
-                        // await FirebaseService.saveUserProgress(updatedUser); 
+                        
+                        // Persist immediately so we don't regenerate on reload
+                        if (updatedUser.isGuest) {
+                            UserService.saveLocalUser(updatedUser);
+                        } else {
+                            await FirebaseService.saveUserProgress(updatedUser); 
+                        }
+                        console.log("Missions generated and saved.");
                     } catch (e) {
-                        console.error("Failed to generate missions", e);
+                        console.error("Failed to generate missions logic", e);
                     }
                 }
             }
@@ -135,8 +144,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const refreshMission = async () => {
         if (user && apiKey) {
-            const missions = await AIService.generateDailyMissions(apiKey, user.level);
-            setUser({ ...user, dailyMissions: missions });
+            try {
+                const missions = await AIService.generateDailyMissions(apiKey, user.level);
+                const updatedUser = { ...user, dailyMissions: missions };
+                setUser(updatedUser);
+                if (updatedUser.isGuest) {
+                    UserService.saveLocalUser(updatedUser);
+                } else {
+                    await FirebaseService.saveUserProgress(updatedUser);
+                }
+            } catch(e) {
+                console.error("Manual refresh failed", e);
+            }
         }
     };
 
@@ -154,7 +173,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const finalUser = { ...updatedUser, dailyMissions: updatedMissions };
         setUser(finalUser);
 
-        await FirebaseService.saveUserProgress(finalUser);
+        if (finalUser.isGuest) {
+             UserService.saveLocalUser(finalUser);
+        } else {
+             await FirebaseService.saveUserProgress(finalUser);
+        }
         console.log(`Mission ${missionId} Completed! Score: ${score}, XP Bonus: ${xpBonus}`);
     };
 

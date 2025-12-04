@@ -1,3 +1,4 @@
+
 import { GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore/lite';
 import { User } from '../types';
@@ -54,6 +55,7 @@ export const FirebaseService = {
           nextLevelXp: data.nextLevelXp || 100,
           totalConversations: data.totalConversations || 0,
           streakDays: data.streakDays || 1,
+          dailyMissions: data.dailyMissions || [], // Load missions
           isGuest: false
         },
         isNew: false
@@ -92,13 +94,20 @@ export const FirebaseService = {
 
     try {
       const userRef = doc(db, 'users', user.id);
-      await setDoc(userRef, {
+      const payload: any = {
         level: user.level,
         currentXp: user.currentXp,
         nextLevelXp: user.nextLevelXp,
         totalConversations: user.totalConversations,
         streakDays: user.streakDays
-      }, { merge: true });
+      };
+      
+      // Persist missions if they exist
+      if (user.dailyMissions) {
+          payload.dailyMissions = user.dailyMissions;
+      }
+
+      await setDoc(userRef, payload, { merge: true });
     } catch (e) {
       console.error("Failed to save progress to cloud", e);
     }

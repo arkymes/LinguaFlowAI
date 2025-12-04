@@ -44,6 +44,15 @@ export const UserService = {
   },
 
   /**
+   * Save full user object locally (for guests)
+   */
+  saveLocalUser(user: User): void {
+    if (user.isGuest) {
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+    }
+  },
+
+  /**
    * Adds XP and handles saving to either LocalStorage or Cloud depending on user type
    */
   async addXp(user: User, amount: number): Promise<{ updatedUser: User, leveledUp: boolean }> {
@@ -83,4 +92,3 @@ export const UserService = {
     localStorage.removeItem(USER_STORAGE_KEY);
   }
 };
-    

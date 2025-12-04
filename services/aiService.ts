@@ -5,7 +5,8 @@ import { TEXT_MODEL, TEXT_MODEL_FALLBACK } from '../constants';
 
 // Helper to clean AI JSON output
 const cleanJson = (text: string) => {
-    return text.replace(/```json|```/g, '').trim();
+    // Removes ```json ... ``` and just ``` ... ``` blocks
+    return text.replace(/^```json\s*|\s*```$/g, '').replace(/^```\s*|\s*```$/g, '').trim();
 };
 
 export const AIService = {
