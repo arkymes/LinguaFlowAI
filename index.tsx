@@ -1,18 +1,21 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import LiveSession from './components/LiveSession';
-import { SCENARIOS } from './constants';
-import { Scenario, TeachingMode, DailyMission, SessionEvaluation } from './types';
+import { SCENARIOS, LECTURE_INSTRUCTIONS, EXAM_INSTRUCTIONS, ICON_PRESETS } from './constants';
+import { Scenario, TeachingMode, DailyMission, SessionEvaluation, Lesson, DifficultyLevel } from './types';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 const MainContent: React.FC = () => {
-  const { user, loading, error, apiKey, setApiKey, signInWithGoogle, logout, createGuest, addXp, completeMission } = useAuth();
+  const { user, loading, error, apiKey, setApiKey, signInWithGoogle, logout, createGuest, addXp, completeMission, completeLesson, createScenario } = useAuth();
 
   // App State
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'missions'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'school' | 'missions'>('dashboard');
   const [activeScenario, setActiveScenario] = useState<Scenario | null>(null);
   const [teachingMode, setTeachingMode] = useState<TeachingMode>(TeachingMode.TEACHER);
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
+  const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
+  const [showCompletedLessons, setShowCompletedLessons] = useState(false);
 
   // Error State for Firebase Domain Issues
   const [authErrorDomain, setAuthErrorDomain] = useState<string | null>(null);
@@ -32,7 +35,6 @@ const MainContent: React.FC = () => {
       console.error("Login Error Caught in UI:", e);
       // Robust check for unauthorized domain
       if (e.code === 'auth/unauthorized-domain' || e.message?.includes('unauthorized-domain')) {
-        // Fallback to href if hostname is empty (common in some previews)
         const currentDomain = window.location.hostname || window.location.host || window.location.href || "Current URL";
         setAuthErrorDomain(currentDomain);
       }
@@ -62,7 +64,6 @@ const MainContent: React.FC = () => {
       return;
     }
 
-    // Convert Mission to Scenario
     const missionScenario: Scenario = {
       id: `mission-${mission.id}`,
       title: mission.title,
@@ -75,10 +76,69 @@ const MainContent: React.FC = () => {
         You must help the user achieve these objectives.
       `,
       initialMessage: `Mission Start: ${mission.description} Ready?`,
-      difficulty: 'ADEPT' // Default or dynamic
+      difficulty: 'ADEPT' 
     };
 
     setActiveScenario(missionScenario);
+  };
+
+  const handleStartLesson = (lesson: Lesson, type: 'LECTURE' | 'EXAM') => {
+    if (!apiKey) {
+      setShowKeyModal(true);
+      return;
+    }
+
+    const isExam = type === 'EXAM';
+    const isBeginner = lesson.levelRequired <= 2;
+
+    // --- DYNAMIC LANGUAGE INSTRUCTION ---
+    // For Levels 1 & 2: Teacher speaks Portuguese to explain.
+    // For Levels 3+: Teacher speaks English (Immersive).
+    const languageInstruction = !isExam && isBeginner 
+      ? `
+        *** STRICT LANGUAGE OVERRIDE ***
+        You are a generic Portuguese-speaking teacher teaching English to a Brazilian student.
+        1. EXPLAIN concepts in **PORTUGUESE** (Brazil).
+        2. Give examples in **ENGLISH**.
+        3. Ask the user to repeat or practice in **ENGLISH**.
+        4. If the user struggles, explain again in Portuguese.
+        5. DO NOT speak full English paragraphs. Keep it bilingual.
+      ` 
+      : `
+        You are an advanced English Professor. 
+        Speak primarily in English to encourage immersion. 
+        Only use Portuguese if the user is completely stuck or asks for a translation.
+      `;
+
+    const instructions = isExam ? EXAM_INSTRUCTIONS : LECTURE_INSTRUCTIONS;
+    
+    const initial = isExam 
+      ? `Exam time. I am your examiner. We are testing your knowledge on: ${lesson.topic}. Ready for your first question?`
+      : isBeginner 
+        ? `Olá! Hoje vamos aprender sobre: ${lesson.topic}. Vamos começar?` // Portuguese intro for beginners
+        : `Welcome to class. Today we are discussing: ${lesson.topic}. Let's begin.`;
+
+    const lessonScenario: Scenario = {
+      id: `${type.toLowerCase()}-${lesson.id}`,
+      title: `${isExam ? 'Exam' : 'Lecture'}: ${lesson.title}`,
+      description: isExam ? 'Prove your knowledge.' : lesson.description,
+      iconPath: isExam ? "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" : "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
+      systemPromptContext: `
+        ${instructions}
+        ${languageInstruction}
+        TOPIC: ${lesson.topic}
+        TARGET LEVEL: ${lesson.levelRequired}
+      `,
+      initialMessage: initial,
+      difficulty: isExam ? 'ELITE' : 'ROOKIE'
+    };
+
+    setActiveScenario(lessonScenario);
+  };
+
+  const handleCreateScenario = (data: Scenario) => {
+      createScenario(data);
+      setShowCreateModal(false);
   };
 
   const handleSessionExit = (stats?: { turns: number, evaluation?: SessionEvaluation }) => {
@@ -96,9 +156,26 @@ const MainContent: React.FC = () => {
           completeMission(missionId, stats.evaluation.score);
         }
       }
+
+      // Check Lesson Completion
+      if (activeScenario && (activeScenario.id.startsWith('lecture-') || activeScenario.id.startsWith('exam-'))) {
+          const isExam = activeScenario.id.startsWith('exam-');
+          const lessonId = activeScenario.id.replace(isExam ? 'exam-' : 'lecture-', '');
+          
+          if (isExam) {
+              if (stats.evaluation && stats.evaluation.score >= 7) {
+                 completeLesson(lessonId, isExam, stats.evaluation.score);
+              }
+          } else {
+              completeLesson(lessonId, isExam, 10);
+          }
+      }
     }
     setActiveScenario(null);
   };
+
+  // Merge built-in scenarios with user custom scenarios
+  const allScenarios = [...(user?.customScenarios || []), ...SCENARIOS];
 
   if (loading) {
     return <div className="h-full w-full bg-black flex items-center justify-center text-white">Loading...</div>;
@@ -177,7 +254,7 @@ const MainContent: React.FC = () => {
               onClick={() => setShowKeyModal(true)}
               className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white"
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
             </button>
 
             <button
@@ -194,25 +271,27 @@ const MainContent: React.FC = () => {
         </header>
 
         {/* Mode Selector (Segmented Control) */}
-        <div className="bg-white/5 p-1 rounded-full flex relative mb-8 backdrop-blur-md border border-white/5">
-          <div className={`absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white/10 rounded-full transition-all duration-300 ease-out shadow-sm ${teachingMode === TeachingMode.FLUENCY ? 'left-[calc(50%+2px)]' : 'left-1'
-            }`}></div>
+        {activeTab === 'dashboard' && (
+          <div className="bg-white/5 p-1 rounded-full flex relative mb-8 backdrop-blur-md border border-white/5">
+            <div className={`absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white/10 rounded-full transition-all duration-300 ease-out shadow-sm ${teachingMode === TeachingMode.FLUENCY ? 'left-[calc(50%+2px)]' : 'left-1'
+              }`}></div>
 
-          <button
-            onClick={() => setTeachingMode(TeachingMode.TEACHER)}
-            className={`flex-1 relative z-10 py-3 text-xs font-medium text-center transition-colors uppercase tracking-wider ${teachingMode === TeachingMode.TEACHER ? 'text-white' : 'text-slate-500'
-              }`}
-          >
-            Teacher Mode
-          </button>
-          <button
-            onClick={() => setTeachingMode(TeachingMode.FLUENCY)}
-            className={`flex-1 relative z-10 py-3 text-xs font-medium text-center transition-colors uppercase tracking-wider ${teachingMode === TeachingMode.FLUENCY ? 'text-white' : 'text-slate-500'
-              }`}
-          >
-            Fluency Mode
-          </button>
-        </div>
+            <button
+              onClick={() => setTeachingMode(TeachingMode.TEACHER)}
+              className={`flex-1 relative z-10 py-3 text-xs font-medium text-center transition-colors uppercase tracking-wider ${teachingMode === TeachingMode.TEACHER ? 'text-white' : 'text-slate-500'
+                }`}
+            >
+              Teacher Mode
+            </button>
+            <button
+              onClick={() => setTeachingMode(TeachingMode.FLUENCY)}
+              className={`flex-1 relative z-10 py-3 text-xs font-medium text-center transition-colors uppercase tracking-wider ${teachingMode === TeachingMode.FLUENCY ? 'text-white' : 'text-slate-500'
+                }`}
+            >
+              Fluency Mode
+            </button>
+          </div>
+        )}
 
         {/* Tabs Content */}
         {activeTab === 'dashboard' ? (
@@ -220,15 +299,26 @@ const MainContent: React.FC = () => {
             {/* Scenarios List */}
             <div className="flex-1 overflow-y-auto no-scrollbar pb-40">
               <div className="flex justify-between items-end mb-4 px-1">
-                <h3 className="text-xl font-semibold text-white">Select Scenario</h3>
+                <div className="flex items-center gap-3">
+                   <h3 className="text-xl font-semibold text-white">Select Scenario</h3>
+                   <button 
+                     onClick={() => setShowCreateModal(true)}
+                     className="w-8 h-8 rounded-full border border-emerald-500/50 bg-emerald-500/10 flex items-center justify-center text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all shadow-lg shadow-emerald-900/20"
+                     title="Create Custom Scenario"
+                   >
+                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                     </svg>
+                   </button>
+                </div>
               </div>
 
               <div className="space-y-4">
-                {SCENARIOS.map((scenario) => (
+                {allScenarios.map((scenario) => (
                   <button
                     key={scenario.id}
                     onClick={() => handleScenarioSelect(scenario)}
-                    className="w-full text-left p-4 rounded-[28px] glass-button flex items-center gap-5 group hover:bg-white/10"
+                    className={`w-full text-left p-4 rounded-[28px] glass-button flex items-center gap-5 group hover:bg-white/10 ${scenario.isCustom ? 'border-emerald-500/30' : ''}`}
                   >
                     {/* Icon Container */}
                     <div className={`w-16 h-16 rounded-[20px] flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105 shadow-lg ${scenario.difficulty === 'ROOKIE' ? 'bg-gradient-to-br from-emerald-500/20 to-teal-500/10 text-emerald-400 shadow-emerald-900/20' :
@@ -260,6 +350,96 @@ const MainContent: React.FC = () => {
               </div>
             </div>
           </>
+        ) : activeTab === 'school' ? (
+           /* School Tab */
+           <div className="flex-1 overflow-y-auto no-scrollbar pb-40">
+              <div className="flex justify-between items-end mb-4 px-1">
+                <h3 className="text-xl font-semibold text-white">Current Curriculum</h3>
+              </div>
+              
+              <div className="space-y-4 mb-8">
+                 {/* To Do Lessons */}
+                 {user.lessons?.filter(l => l.status !== 'COMPLETED').map(lesson => (
+                    <div key={lesson.id} className={`relative overflow-hidden rounded-[28px] p-6 border ${lesson.status === 'LOCKED' ? 'border-white/5 bg-white/5 opacity-60' : 'border-indigo-500/30 bg-indigo-900/10'}`}>
+                        {lesson.status === 'LOCKED' && (
+                           <div className="absolute top-4 right-4 text-slate-500">
+                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                           </div>
+                        )}
+                        <h4 className="font-bold text-lg mb-1 text-white">{lesson.title}</h4>
+                        <div className="flex items-center gap-2 mb-2">
+                           <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Level {lesson.levelRequired}</span>
+                           {lesson.status === 'EXAM_READY' && <span className="text-[10px] uppercase font-bold text-pink-400 tracking-wider animate-pulse">Exam Ready</span>}
+                        </div>
+                        <p className="text-slate-400 text-xs mb-6 leading-relaxed">{lesson.description}</p>
+                        
+                        {lesson.status === 'LOCKED' ? (
+                             <div className="w-full py-3 bg-white/5 rounded-xl font-bold text-slate-500 text-sm text-center border border-white/5">
+                                 Unlock at Level {lesson.levelRequired}
+                             </div>
+                        ) : lesson.status === 'READY' ? (
+                             <button onClick={() => handleStartLesson(lesson, 'LECTURE')} className="w-full py-3 bg-gradient-to-r from-indigo-500 to-blue-600 rounded-xl font-bold text-white text-sm shadow-lg shadow-indigo-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+                                 Start Lecture
+                             </button>
+                        ) : (
+                             <button onClick={() => handleStartLesson(lesson, 'EXAM')} className="w-full py-3 bg-gradient-to-r from-pink-500 to-purple-600 rounded-xl font-bold text-white text-sm shadow-lg shadow-pink-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+                                 Take Exam
+                             </button>
+                        )}
+                    </div>
+                 ))}
+              </div>
+
+              {/* Completed Lessons Accordion */}
+              <div className="mb-4">
+                  <button onClick={() => setShowCompletedLessons(!showCompletedLessons)} className="flex items-center justify-between w-full p-2 text-slate-500 hover:text-white transition-colors group">
+                      <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wider group-hover:text-indigo-400 transition-colors">Completed Studies</span>
+                          <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full">{user.lessons?.filter(l => l.status === 'COMPLETED').length || 0}</span>
+                      </div>
+                      <svg className={`w-4 h-4 transition-transform duration-300 ${showCompletedLessons ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                  
+                  {showCompletedLessons && (
+                      <div className="space-y-3 mt-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                          {user.lessons?.filter(l => l.status === 'COMPLETED').map(lesson => (
+                              <div key={lesson.id} className="p-4 rounded-[20px] bg-white/5 border border-white/10 relative group hover:bg-white/10 transition-colors">
+                                  <div className="flex justify-between items-start mb-3">
+                                      <div>
+                                          <h5 className="text-sm font-bold text-slate-200">{lesson.title}</h5>
+                                          <p className="text-[10px] text-slate-500 uppercase tracking-wider">{lesson.topic}</p>
+                                      </div>
+                                      <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20">
+                                          <span className="text-emerald-400 font-bold text-xs">{lesson.score}/10</span>
+                                      </div>
+                                  </div>
+                                  
+                                  {/* Retake Buttons */}
+                                  <div className="flex gap-2">
+                                      <button 
+                                        onClick={() => handleStartLesson(lesson, 'LECTURE')}
+                                        className="flex-1 py-1.5 rounded-lg bg-white/5 hover:bg-indigo-500/20 hover:text-indigo-300 text-[10px] font-bold text-slate-400 uppercase tracking-wide border border-white/5 transition-all"
+                                      >
+                                          Review Lecture
+                                      </button>
+                                      <button 
+                                        onClick={() => handleStartLesson(lesson, 'EXAM')}
+                                        className="flex-1 py-1.5 rounded-lg bg-white/5 hover:bg-pink-500/20 hover:text-pink-300 text-[10px] font-bold text-slate-400 uppercase tracking-wide border border-white/5 transition-all"
+                                      >
+                                          Retake Exam
+                                      </button>
+                                  </div>
+                              </div>
+                          ))}
+                          {(!user.lessons || !user.lessons.some(l => l.status === 'COMPLETED')) && (
+                              <div className="text-center text-xs text-slate-600 py-6 border border-dashed border-white/10 rounded-xl">
+                                  No completed lessons yet. <br/> Complete a lesson to see it here.
+                              </div>
+                          )}
+                      </div>
+                  )}
+              </div>
+           </div>
         ) : (
           /* Missions Tab */
           <div className="flex-1 overflow-y-auto no-scrollbar pb-40">
@@ -331,6 +511,16 @@ const MainContent: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('school')}
+            className={`flex flex-col items-center justify-center w-16 h-full transition-all ${activeTab === 'school' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+            <span className="text-[9px] font-bold uppercase tracking-wider">School</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('missions')}
             className={`flex flex-col items-center justify-center w-16 h-full transition-all ${activeTab === 'missions' ? 'text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}
           >
@@ -357,6 +547,11 @@ const MainContent: React.FC = () => {
         />
       )}
 
+      {/* Create Scenario Modal */}
+      {showCreateModal && (
+        <CreateScenarioModal onClose={() => setShowCreateModal(false)} onSave={handleCreateScenario} />
+      )}
+
       {/* Auth Error Modal for Domain Issues */}
       {authErrorDomain && (
         <AuthErrorModal domain={authErrorDomain} onClose={() => setAuthErrorDomain(null)} />
@@ -371,6 +566,164 @@ const App: React.FC = () => {
       <MainContent />
     </AuthProvider>
   );
+};
+
+// --- SUB-COMPONENT: CREATE SCENARIO MODAL ---
+const CreateScenarioModal: React.FC<{ onClose: () => void, onSave: (s: Scenario) => void }> = ({ onClose, onSave }) => {
+    const [title, setTitle] = useState('');
+    const [desc, setDesc] = useState('');
+    const [diff, setDiff] = useState<DifficultyLevel>('ROOKIE');
+    const [icon, setIcon] = useState(ICON_PRESETS[0]);
+    const [context, setContext] = useState('');
+    const [intro, setIntro] = useState('');
+    const [hiddenContext, setHiddenContext] = useState(''); // New hidden field
+    const [step, setStep] = useState(1);
+
+    const handleSubmit = () => {
+        // Append hidden context to main context
+        const fullContext = hiddenContext 
+            ? `${context}\n\nADDITIONAL CONTEXT (HIDDEN FROM USER CARD):\n${hiddenContext}` 
+            : context;
+
+        const newScenario: Scenario = {
+            id: `custom-${Date.now()}`,
+            title,
+            description: desc,
+            difficulty: diff,
+            iconPath: icon.path,
+            systemPromptContext: fullContext,
+            initialMessage: intro,
+            isCustom: true
+        };
+        onSave(newScenario);
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/90 backdrop-blur-xl animate-in fade-in duration-300">
+            <div className="w-full max-w-md bg-[#1a1a1a] border border-white/10 rounded-[32px] p-6 shadow-2xl relative flex flex-col max-h-[90vh]">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-white">Create Scenario</h2>
+                    <button onClick={onClose} className="text-slate-500 hover:text-white">
+                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto no-scrollbar space-y-5">
+                    {/* Step 1: Basics */}
+                    {step === 1 && (
+                        <div className="space-y-4 animate-in slide-in-from-right-8 duration-300">
+                            <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider mb-1 block">Title</label>
+                                <input 
+                                    type="text" 
+                                    value={title} 
+                                    onChange={e => setTitle(e.target.value)} 
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-emerald-500/50 placeholder:text-slate-700"
+                                    placeholder="e.g. Job Interview at Google"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider mb-1 block">Description (Visible)</label>
+                                <input 
+                                    type="text" 
+                                    value={desc} 
+                                    onChange={e => setDesc(e.target.value)} 
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-emerald-500/50 placeholder:text-slate-700"
+                                    placeholder="Short description for the card"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider mb-1 block">Difficulty</label>
+                                <div className="flex gap-2">
+                                    {(['ROOKIE', 'ADEPT', 'ELITE'] as const).map(d => (
+                                        <button 
+                                            key={d}
+                                            onClick={() => setDiff(d)}
+                                            className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${diff === d ? 'bg-white text-black border-white' : 'bg-transparent text-slate-500 border-white/10 hover:border-white/30'}`}
+                                        >
+                                            {d}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider mb-2 block">Choose Icon</label>
+                                <div className="grid grid-cols-5 gap-2">
+                                    {ICON_PRESETS.map((ic, idx) => (
+                                        <button 
+                                            key={idx} 
+                                            onClick={() => setIcon(ic)}
+                                            className={`aspect-square rounded-xl flex items-center justify-center border transition-all ${icon.name === ic.name ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-white/5 border-white/5 text-slate-500 hover:bg-white/10'}`}
+                                            title={ic.name}
+                                        >
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={ic.path} />
+                                            </svg>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Step 2: AI Config */}
+                    {step === 2 && (
+                        <div className="space-y-4 animate-in slide-in-from-right-8 duration-300">
+                             <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider mb-1 block">AI Persona (Short)</label>
+                                <textarea 
+                                    value={context} 
+                                    onChange={e => setContext(e.target.value)} 
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-emerald-500/50 placeholder:text-slate-700 h-24 resize-none"
+                                    placeholder="e.g. You are a hiring manager. You are strict."
+                                />
+                            </div>
+
+                            {/* HIDDEN CONTEXT FIELD */}
+                            <div>
+                                <label className="text-[10px] uppercase text-amber-500 font-bold tracking-wider mb-1 block flex items-center gap-2">
+                                    Additional Context (Hidden)
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                                </label>
+                                <textarea 
+                                    value={hiddenContext} 
+                                    onChange={e => setHiddenContext(e.target.value)} 
+                                    className="w-full bg-black/40 border border-amber-500/20 rounded-xl px-4 py-3 text-slate-300 text-xs focus:outline-none focus:border-amber-500/50 placeholder:text-slate-700 h-32 resize-none font-mono"
+                                    placeholder="Paste full job description, specific details, or secret instructions here. The user won't see this on the card."
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider mb-1 block">Initial Message</label>
+                                <input 
+                                    type="text" 
+                                    value={intro} 
+                                    onChange={e => setIntro(e.target.value)} 
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-emerald-500/50 placeholder:text-slate-700"
+                                    placeholder="e.g. Hello, take a seat. Tell me about yourself."
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+                
+                <div className="mt-6 flex gap-3">
+                    {step === 2 && (
+                        <button onClick={() => setStep(1)} className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-xl font-bold text-white text-sm transition-all">
+                            Back
+                        </button>
+                    )}
+                    <button 
+                        onClick={() => step === 1 ? setStep(2) : handleSubmit()}
+                        disabled={step === 1 ? (!title || !desc) : (!context || !intro)}
+                        className="flex-1 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl font-bold text-white text-sm shadow-lg shadow-emerald-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {step === 1 ? 'Next' : 'Create Scenario'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 // --- SUB-COMPONENT: AUTH ERROR MODAL ---

@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User } from '../types';
+import { User, LessonStatus, Scenario } from '../types';
 import { UserService } from '../services/userService';
 import { FirebaseService } from '../services/firebaseService';
 import { AIService } from '../services/aiService';
@@ -19,6 +19,8 @@ interface AuthContextType {
     addXp: (amount: number) => Promise<void>;
     refreshMission: () => Promise<void>;
     completeMission: (missionId: string, score: number) => Promise<void>;
+    completeLesson: (lessonId: string, isExam: boolean, score: number) => Promise<void>;
+    createScenario: (scenario: Scenario) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -43,26 +45,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check Daily Mission
     useEffect(() => {
         const checkMission = async () => {
-            // Allowing guests to have missions too
             if (user && apiKey) {
                 const today = new Date().toISOString().split('T')[0];
-                // Check if missions exist and are from today
                 if (!user.dailyMissions || user.dailyMissions.length === 0 || user.dailyMissions[0].date !== today) {
                     try {
                         console.log("Generating Daily Missions...");
-                        // This service method has a fallback built-in, so it should always return something
                         const missions = await AIService.generateDailyMissions(apiKey, user.level);
                         
                         const updatedUser = { ...user, dailyMissions: missions };
                         setUser(updatedUser);
                         
-                        // Persist immediately so we don't regenerate on reload
                         if (updatedUser.isGuest) {
                             UserService.saveLocalUser(updatedUser);
                         } else {
                             await FirebaseService.saveUserProgress(updatedUser); 
                         }
-                        console.log("Missions generated and saved.");
                     } catch (e) {
                         console.error("Failed to generate missions logic", e);
                     }
@@ -73,17 +70,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [user?.id, apiKey]);
 
     useEffect(() => {
-        // Check for local guest user first
         const localUser = UserService.getLocalUser();
         if (localUser) {
             setUser(localUser);
             setLoading(false);
         }
 
-        // Listen for Firebase Auth changes
         const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
             if (fbUser) {
-                // User is signed in with Firebase
                 try {
                     const { user: syncedUser } = await FirebaseService.syncUser(fbUser);
                     setUser(syncedUser);
@@ -91,12 +85,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 } catch (error: any) {
                     console.error("Failed to sync user", error);
                     setError(`Sync Error: ${error.message || 'Unknown error'}`);
-                    // Force logout if sync fails to avoid stuck state
                     await FirebaseService.logout();
                     setUser(null);
                 }
             } else {
-                // User is signed out of Firebase
                 if (!localUser) {
                     setUser(null);
                 }
@@ -116,13 +108,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (error: any) {
             console.error("Login failed", error);
             setError(`Login Failed: ${error.message || 'Unknown error'}`);
-            throw error; // RETHROW so UI can catch specific codes like authorized-domain
+            throw error;
         }
     };
 
     const logout = async () => {
         await FirebaseService.logout();
-        UserService.logout(); // Clears local storage
+        UserService.logout(); 
         setUser(null);
         setError(null);
     };
@@ -165,11 +157,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const updatedMissions = user.dailyMissions.map(m =>
             m.id === missionId ? { ...m, isCompleted: true, score } : m
         );
-
-        const xpBonus = 50 + (score * 5); // Base 50 + 5 per score point
-
-        const { updatedUser, leveledUp } = await UserService.addXp(user, xpBonus);
-
+        const xpBonus = 50 + (score * 5); 
+        const { updatedUser } = await UserService.addXp(user, xpBonus);
         const finalUser = { ...updatedUser, dailyMissions: updatedMissions };
         setUser(finalUser);
 
@@ -181,8 +170,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log(`Mission ${missionId} Completed! Score: ${score}, XP Bonus: ${xpBonus}`);
     };
 
+    const completeLesson = async (lessonId: string, isExam: boolean, score: number) => {
+         if (!user || !user.lessons) return;
+
+         const updatedLessons = user.lessons.map(l => {
+             if (l.id === lessonId) {
+                 if (isExam) {
+                     return { ...l, status: 'COMPLETED', score } as const;
+                 } else {
+                     return { ...l, status: 'EXAM_READY' } as const;
+                 }
+             }
+             return l;
+         });
+
+         // Award huge XP for exam, smaller for lecture
+         const xpBonus = isExam ? 200 + (score * 10) : 50; 
+         
+         const { updatedUser } = await UserService.addXp(user, xpBonus);
+         const finalUser = { ...updatedUser, lessons: updatedLessons };
+         setUser(finalUser);
+
+         if (finalUser.isGuest) {
+             UserService.saveLocalUser(finalUser);
+         } else {
+             await FirebaseService.saveUserProgress(finalUser);
+         }
+    };
+
+    const createScenario = async (scenario: Scenario) => {
+        if (!user) return;
+        const currentCustom = user.customScenarios || [];
+        const updatedCustom = [...currentCustom, scenario];
+        const updatedUser = { ...user, customScenarios: updatedCustom };
+        setUser(updatedUser);
+
+        if (updatedUser.isGuest) {
+            UserService.saveLocalUser(updatedUser);
+        } else {
+            await FirebaseService.saveUserProgress(updatedUser);
+        }
+    };
+
     return (
-        <AuthContext.Provider value={{ user, loading, error, apiKey, setApiKey, signInWithGoogle, logout, createGuest, addXp, refreshMission, completeMission }}>
+        <AuthContext.Provider value={{ user, loading, error, apiKey, setApiKey, signInWithGoogle, logout, createGuest, addXp, refreshMission, completeMission, completeLesson, createScenario }}>
             {children}
         </AuthContext.Provider>
     );

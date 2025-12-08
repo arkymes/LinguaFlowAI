@@ -22,6 +22,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
     const [realtimeOutput, setRealtimeOutput] = useState('');
     const [missionSuccess, setMissionSuccess] = useState(false);
     const [missionCompleting, setMissionCompleting] = useState(false); // New state for immediate feedback
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     // Visualizer State
     const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
@@ -42,9 +43,10 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
         let active = true;
 
         const startSession = async () => {
+            setErrorMessage(null);
             try {
                 if (!apiKey) {
-                    console.error("No API Key provided");
+                    setErrorMessage("No API Key provided");
                     return;
                 }
 
@@ -78,6 +80,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                     callbacks: {
                         onopen: () => {
                             if (!active) return;
+                            console.log("Connection Established");
                             setIsConnected(true);
 
                             const ctx = inputAudioContextRef.current;
@@ -93,7 +96,9 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
 
                                     sessionPromise
                                         .then(session => session.sendRealtimeInput({ media: blob }))
-                                        .catch(() => { });
+                                        .catch((err) => {
+                                            console.warn("Send Input Error:", err);
+                                        });
                                 };
 
                                 source.connect(processor);
@@ -121,7 +126,8 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                                                     name: name,
                                                     response: { result: 'ok' }
                                                 }]
-                                            }));
+                                            })).catch(() => {});
+                                            
                                             setTimeout(() => handleSessionEnd(), 2000); // Delay slightly to let audio finish
                                             return;
                                         }
@@ -164,7 +170,6 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                             }
 
                             // Handle Transcription
-                            // Note: outputTranscription comes in chunks, we accumulate them.
                             const outTrans = msg.serverContent?.outputTranscription?.text;
                             const inTrans = msg.serverContent?.inputTranscription?.text;
 
@@ -184,7 +189,6 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                                     setRealtimeInput('');
                                 }
                                 if (currentOutputTransRef.current.trim()) {
-                                    // Clean up any lingering tokens just in case
                                     let text = currentOutputTransRef.current.replace('[MISSION_COMPLETE]', '').trim();
                                     if (text) {
                                         setTranscripts(prev => [...prev, { id: Date.now() + 'a', role: 'model', text, timestamp: new Date() }]);
@@ -194,10 +198,14 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                                 }
                             }
                         },
-                        onclose: () => setIsConnected(false),
+                        onclose: () => {
+                             console.log("Connection Closed");
+                             setIsConnected(false);
+                        },
                         onerror: (err) => {
-                            console.error(err);
+                            console.error("Gemini Connection Error:", err);
                             setIsConnected(false);
+                            setErrorMessage(`Connection Error: ${err.message || "Unknown error"}. Check your API Key or Network.`);
                         }
                     },
                     config: {
@@ -228,7 +236,11 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                     }
                 });
 
-                sessionPromise.catch(() => setIsConnected(false));
+                sessionPromise.catch((err) => {
+                    console.error("Session Connection Promise Error:", err);
+                    setIsConnected(false);
+                    setErrorMessage(`Connection Failed: ${err.message}`);
+                });
 
                 cleanup = () => {
                     active = false;
@@ -241,14 +253,15 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                 // Expose cleanup to parent scope via ref
                 disconnectRef.current = cleanup;
 
-            } catch (e) {
+            } catch (e: any) {
                 console.error(e);
+                setErrorMessage(e.message || "Failed to initialize audio/video.");
             }
         };
 
         startSession();
         return () => cleanup();
-    }, [scenario, mode, apiKey]); // Added apiKey to dependency array
+    }, [scenario, mode, apiKey]);
 
     const [showChat, setShowChat] = useState(false);
     const chatEndRef = useRef<HTMLDivElement>(null);
@@ -393,6 +406,17 @@ const LiveSession: React.FC<LiveSessionProps> = ({ scenario, mode, apiKey, onExi
                         {isEvaluating ? 'ANALYZING PERFORMANCE...' : 'CONNECTING TO NEURAL NET...'}
                     </span>
                 </div>
+
+                {/* Error Message Overlay */}
+                {errorMessage && (
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 w-3/4 p-4 bg-red-500/10 border border-red-500/50 rounded-2xl backdrop-blur-md text-center">
+                        <svg className="w-10 h-10 text-red-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        <p className="text-red-200 text-xs font-medium mb-4">{errorMessage}</p>
+                        <button onClick={() => onExit()} className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-100 rounded-lg text-xs uppercase font-bold tracking-wider transition-colors">
+                            Return Home
+                        </button>
+                    </div>
+                )}
 
                 {/* Main Visualizer Area */}
                 <div className="flex-1 relative w-full h-full flex items-center justify-center">

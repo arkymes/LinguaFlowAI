@@ -6,6 +6,18 @@ export enum TeachingMode {
 
 export type DifficultyLevel = 'ROOKIE' | 'ADEPT' | 'ELITE';
 
+export type LessonStatus = 'LOCKED' | 'READY' | 'EXAM_READY' | 'COMPLETED';
+
+export interface Lesson {
+  id: string;
+  title: string;
+  description: string;
+  topic: string;
+  levelRequired: number;
+  status: LessonStatus;
+  score?: number;
+}
+
 export interface DailyMission {
   id: string;
   date: string; // YYYY-MM-DD
@@ -14,6 +26,17 @@ export interface DailyMission {
   objectives: string[];
   isCompleted: boolean;
   score?: number;
+}
+
+export interface Scenario {
+  id: string;
+  title: string;
+  description: string;
+  iconPath: string; // SVG path data d=""
+  systemPromptContext: string;
+  initialMessage: string;
+  difficulty: DifficultyLevel;
+  isCustom?: boolean;
 }
 
 export interface User {
@@ -29,16 +52,8 @@ export interface User {
   streakDays: number;
   isGuest?: boolean;
   dailyMissions?: DailyMission[];
-}
-
-export interface Scenario {
-  id: string;
-  title: string;
-  description: string;
-  iconPath: string; // SVG path data d=""
-  systemPromptContext: string;
-  initialMessage: string;
-  difficulty: DifficultyLevel;
+  lessons?: Lesson[];
+  customScenarios?: Scenario[];
 }
 
 export interface ChatMessage {
@@ -59,4 +74,3 @@ export interface SessionEvaluation {
   feedback: string;
   tips: string[];
 }
-    

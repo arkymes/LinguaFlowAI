@@ -3,6 +3,7 @@ import { GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, User a
 import { doc, getDoc, setDoc } from 'firebase/firestore/lite';
 import { User } from '../types';
 import { auth, db } from '../firebaseConfig';
+import { CURRICULUM } from '../constants';
 
 export const FirebaseService = {
   auth,
@@ -43,6 +44,10 @@ export const FirebaseService = {
     if (userSnap.exists()) {
       // Existing User: Return data
       const data = userSnap.data();
+      
+      // Ensure lessons array exists for older users
+      let lessons = data.lessons || CURRICULUM;
+      
       return {
         user: {
           id: fbUser.uid,
@@ -52,10 +57,12 @@ export const FirebaseService = {
           createdAt: data.createdAt ? new Date(data.createdAt.seconds * 1000) : new Date(),
           level: data.level || 1,
           currentXp: data.currentXp || 0,
-          nextLevelXp: data.nextLevelXp || 100,
+          nextLevelXp: data.nextLevelXp || 500,
           totalConversations: data.totalConversations || 0,
           streakDays: data.streakDays || 1,
-          dailyMissions: data.dailyMissions || [], // Load missions
+          dailyMissions: data.dailyMissions || [], 
+          lessons: lessons,
+          customScenarios: data.customScenarios || [],
           isGuest: false
         },
         isNew: false
@@ -70,16 +77,18 @@ export const FirebaseService = {
         createdAt: new Date(),
         level: 1,
         currentXp: 0,
-        nextLevelXp: 100,
+        nextLevelXp: 500, // Harder start
         totalConversations: 0,
         streakDays: 1,
-        isGuest: false
+        isGuest: false,
+        lessons: CURRICULUM,
+        customScenarios: []
       };
 
       // Save to Firestore
       await setDoc(userRef, {
         ...newUser,
-        createdAt: newUser.createdAt // Firestore converts Date automatically
+        createdAt: newUser.createdAt
       });
 
       return { user: newUser, isNew: true };
@@ -105,6 +114,16 @@ export const FirebaseService = {
       // Persist missions if they exist
       if (user.dailyMissions) {
           payload.dailyMissions = user.dailyMissions;
+      }
+      
+      // Persist lessons
+      if (user.lessons) {
+          payload.lessons = user.lessons;
+      }
+
+      // Persist custom scenarios
+      if (user.customScenarios) {
+          payload.customScenarios = user.customScenarios;
       }
 
       await setDoc(userRef, payload, { merge: true });
